@@ -1,0 +1,18 @@
+services:
+  db:
+    image: postgres:latest
+    container_name: manage_me
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+# Docker Compose enforces a strict rule: You cannot mount a named storage volume to a container unless you explicitly "register" the name at the very bottom of the file
+volumes:
+  postgres_data:
+    driver: local

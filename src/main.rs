@@ -68,7 +68,9 @@ async fn main() {
         }
     };
 
-    let state = app::AppState { db: pool };
+    let state = app::AppState {
+        db: app::PostgresDbPool::new(pool),
+    };
 
     let app = Router::new()
         .nest("/api/v1/", routes::app_router())

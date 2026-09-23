@@ -6,6 +6,7 @@ use tower_http::trace::TraceLayer;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 mod app;
+mod enums;
 mod models;
 mod routes;
 mod utils;
@@ -22,7 +23,6 @@ struct Config {
 
 #[tokio::main]
 async fn main() {
-    // initialize tracing
     tracing_subscriber::registry()
         .with(fmt::layer())
         .with(match EnvFilter::try_from_default_env() {
@@ -32,18 +32,17 @@ async fn main() {
         .init();
 
     match dotenv() {
-        Ok(_) => tracing::info!("Loading env..."),
+        Ok(_) => tracing::info!("Env loaded"),
         Err(err) => {
-            tracing::error!("Failed to load env variables... {:#}", err);
-            return;
+            tracing::error!("Failed to load env variables: {:#}", err);
+            std::process::exit(1);
         }
     }
 
-    // Parse env variables
     let config = match envy::from_env::<Config>() {
         Ok(cfg) => cfg,
         Err(e) => {
-            tracing::error!("Could not parse config: \n{:?}", e);
+            tracing::error!("Could not parse config: {:?}", e);
             std::process::exit(1);
         }
     };
@@ -62,9 +61,9 @@ async fn main() {
             tracing::info!("Connected to database");
             connection_pool
         }
-        Err(_) => {
-            tracing::error!("Could not connect to database!");
-            std::process::exit(1)
+        Err(e) => {
+            tracing::error!("Could not connect to database: {}", e);
+            std::process::exit(1);
         }
     };
 
@@ -80,14 +79,53 @@ async fn main() {
     let addr = format!("0.0.0.0:{}", config.app_port);
 
     let listener = match tokio::net::TcpListener::bind(&addr).await {
-        Ok(tcp) => tcp,
-        Err(_) => return,
+        Ok(l) => l,
+        Err(e) => {
+            tracing::error!("Failed to bind {}: {}", addr, e);
+            std::process::exit(1);
+        }
     };
 
-    tracing::info!("App is running on http://{:}...", addr);
+    tracing::info!("App is running on http://{}...", addr);
 
-    match axum::serve(listener, app).await {
-        Ok(arg) => tracing::info!("App is shutting down...\n{:?}", arg),
-        Err(e) => panic!("{}", e),
+    match axum::serve(listener, app)
+        .with_graceful_shutdown(async {
+            #[cfg(unix)]
+            {
+                use tokio::signal::unix::{SignalKind, signal};
+                match (
+                    signal(SignalKind::terminate()),
+                    signal(SignalKind::interrupt()),
+                ) {
+                    (Ok(mut sigterm), Ok(mut sigint)) => {
+                        tokio::select! {
+                            _ = sigterm.recv() => tracing::info!("Received SIGTERM, shutting down"),
+                            _ = sigint.recv()  => tracing::info!("Received SIGINT, shutting down"),
+                        }
+                    }
+                    (Err(e), _) | (_, Err(e)) => {
+                        tracing::error!("Failed to install signal handler: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                match tokio::signal::ctrl_c().await {
+                    Ok(_) => tracing::info!("Received ctrl+c, shutting down"),
+                    Err(e) => {
+                        tracing::error!("Failed to listen for ctrl+c: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+        })
+        .await
+    {
+        Ok(_) => tracing::info!("Server stopped cleanly"),
+        Err(e) => {
+            tracing::error!("Server error: {}", e);
+            std::process::exit(1);
+        }
     }
 }

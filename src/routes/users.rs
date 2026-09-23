@@ -5,20 +5,17 @@ use axum::{
     http::StatusCode,
     routing::get,
 };
+use uuid::Uuid;
 
-use crate::{
-    app::AppState,
-    models::users_model::{self},
-    utils::response::ApiResponse,
-};
+use crate::{app::AppState, models::users_model::UsersDto, utils::response::ApiResponse};
 
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/users", get(get_users))
-        .route("/users/:id", get(get_user_by_id))
+        .route("/users/{id}", get(get_user_by_id))
 }
 
-async fn get_users(State(state): State<AppState>) -> ApiResponse<Vec<users_model::UsersDto>> {
+async fn get_users(State(state): State<AppState>) -> ApiResponse<Vec<UsersDto>> {
     match state.db.find_all().await {
         Ok(users) if !users.is_empty() => ApiResponse {
             http_status: StatusCode::OK,
@@ -30,7 +27,7 @@ async fn get_users(State(state): State<AppState>) -> ApiResponse<Vec<users_model
         Ok(_) => ApiResponse {
             http_status: StatusCode::NO_CONTENT,
             status: true,
-            message: String::from("No users found"),
+            message: String::from("No users found!"),
             data: None,
         },
 
@@ -48,9 +45,9 @@ async fn get_users(State(state): State<AppState>) -> ApiResponse<Vec<users_model
 
 async fn get_user_by_id(
     State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> ApiResponse<users_model::UsersDto> {
-    match state.db.find_by_id(&id).await {
+    Path(id): Path<Uuid>,
+) -> ApiResponse<UsersDto> {
+    match state.db.find_by_id(id).await {
         Ok(Some(user)) => ApiResponse {
             http_status: StatusCode::OK,
             status: true,
